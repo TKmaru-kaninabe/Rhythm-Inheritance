@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Rhythm Inheritance</title>
+<title>Danmaku Art - Rhythm Inheritance</title>
 <style>
 body{margin:0;background:black;overflow:hidden;}
 canvas{display:block;margin:auto;}
@@ -10,13 +10,51 @@ canvas{display:block;margin:auto;}
   position:fixed;left:50%;top:50%;
   transform:translate(-50%,-50%);
   font-size:24px;padding:14px 36px;
+  z-index:10;
 }
+
+/* ==== 仮想パッド ==== */
+#pad{
+  position:fixed;
+  bottom:20px;
+  left:50%;
+  transform:translateX(-50%);
+  width:220px;
+  height:220px;
+  pointer-events:auto;
+}
+.pad-btn{
+  position:absolute;
+  width:64px;height:64px;
+  background:#222;
+  border:2px solid #666;
+  color:#fff;
+  font-size:28px;
+  border-radius:12px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  user-select:none;
+}
+#btn-up{left:78px;top:0;}
+#btn-down{left:78px;bottom:0;}
+#btn-left{left:0;top:78px;}
+#btn-right{right:0;top:78px;}
 </style>
 </head>
 <body>
 
 <button id="start">START</button>
 <canvas id="cv" width="640" height="640"></canvas>
+
+<!-- 仮想十字キー -->
+<div id="pad">
+  <div class="pad-btn" id="btn-up">↑</div>
+  <div class="pad-btn" id="btn-down">↓</div>
+  <div class="pad-btn" id="btn-left">←</div>
+  <div class="pad-btn" id="btn-right">→</div>
+</div>
+
 <audio id="bgm" src="UNITY.mp3" preload="auto"></audio>
 
 <script>
@@ -26,6 +64,22 @@ const W=cv.width,H=cv.height;
 const keys={};
 onkeydown=e=>keys[e.key]=true;
 onkeyup=e=>keys[e.key]=false;
+
+/* ==== 仮想パッド入力 ==== */
+function bindBtn(id,key){
+  const b=document.getElementById(id);
+  const on=()=>keys[key]=true;
+  const off=()=>keys[key]=false;
+  b.addEventListener("mousedown",on);
+  b.addEventListener("mouseup",off);
+  b.addEventListener("mouseleave",off);
+  b.addEventListener("touchstart",e=>{e.preventDefault();on();});
+  b.addEventListener("touchend",off);
+}
+bindBtn("btn-up","ArrowUp");
+bindBtn("btn-down","ArrowDown");
+bindBtn("btn-left","ArrowLeft");
+bindBtn("btn-right","ArrowRight");
 
 /* ===== 画像 ===== */
 const heart=new Image(); heart.src="images/heart.png";
@@ -47,32 +101,25 @@ const player={
 /* ===== 弾・ビーム ===== */
 let bullets=[];
 let beams=[];
-
-/* ===== 発射源 ===== */
 let emitters=[];
 
-/* ===== 状態 ===== */
 let running=false,dead=false;
 let last=0,time=0;
 let damaged=false;
 let screenRot=0;
 
-/* ===== 生存時間 ===== */
 let startTime=0;
 let surviveTime=0;
 
-/* ===== 音ハメリズム ===== */
 let lastBeatTime=0;
-let prevInterval=0.5; // 初期0.5秒
+let prevInterval=0.5;
 let nextFire=0;
 
-/* ===== サビ ===== */
 function isChorus(){
   const t=bgm.currentTime;
   return (t>45 && t<75) || (t>105 && t<140);
 }
 
-/* ===== 発射源生成 ===== */
 function spawnEmitter(){
   emitters.push({
     type:Math.random()<0.5?"move":"circle",
@@ -85,7 +132,6 @@ function spawnEmitter(){
   if(emitters.length>6) emitters.shift();
 }
 
-/* ===== 弾幕 ===== */
 function ring(x,y,count,speed,rot){
   for(let i=0;i<count;i++){
     const a=rot+i*Math.PI*2/count;
@@ -112,55 +158,37 @@ function spiral(x,y,rot){
   }
 }
 
-/* ===== beam ===== */
 function spawnBeam(x,y,angle,long){
-  beams.push({
-    x,y,angle,
-    time:0,
-    warn:30,
-    life:90,
-    long
-  });
+  beams.push({x,y,angle,time:0,warn:30,life:90,long});
 }
 
-/* ===== 更新 ===== */
 function update(dt){
   time+=dt; damaged=false;
   surviveTime=(performance.now()-startTime)/1000;
 
-  /* 自機 */
   const sp=keys["x"]?player.slow:player.speed;
   if(keys["ArrowLeft"])player.x-=sp;
   if(keys["ArrowRight"])player.x+=sp;
   if(keys["ArrowUp"])player.y-=sp;
   if(keys["ArrowDown"])player.y+=sp;
+
   player.x=Math.max(10,Math.min(W-10,player.x));
   player.y=Math.max(10,Math.min(H-10,player.y));
 
-  /* 発射源追加 */
   if(Math.random()<0.01) spawnEmitter();
 
-  /* === 音ハメ継承 === */
   const t=bgm.currentTime;
   if(t>nextFire){
-    // 前回ビートとの差を保存
     const interval=t-lastBeatTime;
-    if(interval>0.15 && interval<2){
-      prevInterval=interval;
-    }
+    if(interval>0.15 && interval<2) prevInterval=interval;
     lastBeatTime=t;
     nextFire=t+prevInterval;
 
     emitters.forEach(e=>{
-      if(e.type==="move"){
-        ring(e.x,e.y,16,2.1,time*0.8);
-      }else{
-        spiral(e.x,e.y,time);
-      }
+      e.type==="move"?ring(e.x,e.y,16,2.1,time*0.8):spiral(e.x,e.y,time);
     });
   }
 
-  /* 発射源移動 */
   emitters.forEach(e=>{
     if(e.type==="move"){
       e.x+=e.vx;
@@ -172,7 +200,6 @@ function update(dt){
     }
   });
 
-  /* サビ beam */
   if(isChorus()){
     screenRot+=dt*0.8;
     if(Math.random()<0.04){
@@ -184,11 +211,8 @@ function update(dt){
       ][Math.random()*4|0];
       spawnBeam(edge[0],edge[1],edge[2],true);
     }
-  }else{
-    screenRot*=0.9;
-  }
+  }else screenRot*=0.9;
 
-  /* 当たり判定 */
   bullets=bullets.filter(b=>{
     b.x+=b.vx; b.y+=b.vy;
     const dx=b.x-player.x,dy=b.y-player.y;
@@ -204,8 +228,7 @@ function update(dt){
     if(b.time>b.warn){
       const nx=Math.cos(b.angle),ny=Math.sin(b.angle);
       const px=player.x-b.x,py=player.y-b.y;
-      const d=Math.abs(px*ny-py*nx);
-      if(d<20 && !damaged){
+      if(Math.abs(px*ny-py*nx)<20 && !damaged){
         player.hp--; damaged=true;
         if(player.hp<=0) dead=true;
       }
@@ -219,18 +242,14 @@ function update(dt){
   }
 }
 
-/* ===== 描画 ===== */
 function draw(){
   ctx.save();
   ctx.translate(W/2,H/2);
   ctx.rotate(screenRot);
   ctx.translate(-W/2,-H/2);
-
   ctx.clearRect(0,0,W,H);
 
-  bullets.forEach(b=>{
-    ctx.drawImage(b.img,b.x-8,b.y-8,16,16);
-  });
+  bullets.forEach(b=>ctx.drawImage(b.img,b.x-8,b.y-8,16,16));
 
   beams.forEach(b=>{
     ctx.save();
@@ -244,7 +263,6 @@ function draw(){
   ctx.drawImage(heart,player.x-12,player.y-12,24,24);
   ctx.restore();
 
-  /* UI */
   ctx.fillStyle="#300";
   ctx.fillRect(20,20,200,12);
   ctx.fillStyle="#f00";
@@ -262,7 +280,6 @@ function draw(){
   }
 }
 
-/* ===== ループ ===== */
 function loop(ts){
   if(!running) return;
   const dt=(ts-last)/1000; last=ts;
