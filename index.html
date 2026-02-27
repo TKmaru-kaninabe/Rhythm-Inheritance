@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Rhythm Inheritance</title>
+<style>
+body{margin:0;background:black;overflow:hidden;}
+canvas{display:block;margin:auto;}
+#start{
+  position:fixed;left:50%;top:50%;
+  transform:translate(-50%,-50%);
+  font-size:24px;padding:14px 36px;
+}
+</style>
+</head>
+<body>
+
+<button id="start">START</button>
+<canvas id="cv" width="640" height="640"></canvas>
+<audio id="bgm" src="UNITY.mp3" preload="auto"></audio>
+
+<script>
+const cv=document.getElementById("cv"),ctx=cv.getContext("2d");
+const bgm=document.getElementById("bgm");
+const W=cv.width,H=cv.height;
+const keys={};
+onkeydown=e=>keys[e.key]=true;
+onkeyup=e=>keys[e.key]=false;
+
+/* ===== 画像 ===== */
+const heart=new Image(); heart.src="images/heart.png";
+const beamImg=new Image(); beamImg.src="images/beam.png";
+const bulletImgs=[];
+for(let i=1;i<=5;i++){
+  const img=new Image();
+  img.src=`images/bullet${i}.png`;
+  bulletImgs.push(img);
+}
+
+/* ===== 自機 ===== */
+const player={
+  x:W/2,y:H*0.78,r:4,
+  hp:99,maxHp:99,
+  speed:3,slow:1.2
+};
+
+/* ===== 弾・ビーム ===== */
+let bullets=[];
+let beams=[];
+
+/* ===== 発射源 ===== */
+let emitters=[];
+
+/* ===== 状態 ===== */
+let running=false,dead=false;
+let last=0,time=0;
+let damaged=false;
+let screenRot=0;
+
+/* ===== 生存時間 ===== */
+let startTime=0;
+let surviveTime=0;
+
+/* ===== 音ハメリズム ===== */
+let lastBeatTime=0;
+let prevInterval=0.5; // 初期0.5秒
+let nextFire=0;
+
+/* ===== サビ ===== */
+function isChorus(){
+  const t=bgm.currentTime;
+  return (t>45 && t<75) || (t>105 && t<140);
+}
+
+/* ===== 発射源生成 ===== */
+function spawnEmitter(){
+  emitters.push({
+    type:Math.random()<0.5?"move":"circle",
+    x:Math.random()*W,
+    y:80+Math.random()*120,
+    a:Math.random()*Math.PI*2,
+    r:80+Math.random()*100,
+    vx:(Math.random()*2-1)*1.4
+  });
+  if(emitters.length>6) emitters.shift();
+}
+
+/* ===== 弾幕 ===== */
+function ring(x,y,count,speed,rot){
+  for(let i=0;i<count;i++){
+    const a=rot+i*Math.PI*2/count;
+    bullets.push({
+      x,y,
+      vx:Math.cos(a)*speed,
+      vy:Math.sin(a)*speed,
+      r:6,
+      img:bulletImgs[i%5]
+    });
+  }
+}
+
+function spiral(x,y,rot){
+  for(let i=0;i<12;i++){
+    const a=rot+i*0.5;
+    bullets.push({
+      x,y,
+      vx:Math.cos(a)*2.4,
+      vy:Math.sin(a)*2.4,
+      r:6,
+      img:bulletImgs[i%5]
+    });
+  }
+}
+
+/* ===== beam ===== */
+function spawnBeam(x,y,angle,long){
+  beams.push({
+    x,y,angle,
+    time:0,
+    warn:30,
+    life:90,
+    long
+  });
+}
+
+/* ===== 更新 ===== */
+function update(dt){
+  time+=dt; damaged=false;
+  surviveTime=(performance.now()-startTime)/1000;
+
+  /* 自機 */
+  const sp=keys["x"]?player.slow:player.speed;
+  if(keys["ArrowLeft"])player.x-=sp;
+  if(keys["ArrowRight"])player.x+=sp;
+  if(keys["ArrowUp"])player.y-=sp;
+  if(keys["ArrowDown"])player.y+=sp;
+  player.x=Math.max(10,Math.min(W-10,player.x));
+  player.y=Math.max(10,Math.min(H-10,player.y));
+
+  /* 発射源追加 */
+  if(Math.random()<0.01) spawnEmitter();
+
+  /* === 音ハメ継承 === */
+  const t=bgm.currentTime;
+  if(t>nextFire){
+    // 前回ビートとの差を保存
+    const interval=t-lastBeatTime;
+    if(interval>0.15 && interval<2){
+      prevInterval=interval;
+    }
+    lastBeatTime=t;
+    nextFire=t+prevInterval;
+
+    emitters.forEach(e=>{
+      if(e.type==="move"){
+        ring(e.x,e.y,16,2.1,time*0.8);
+      }else{
+        spiral(e.x,e.y,time);
+      }
+    });
+  }
+
+  /* 発射源移動 */
+  emitters.forEach(e=>{
+    if(e.type==="move"){
+      e.x+=e.vx;
+      if(e.x<40||e.x>W-40) e.vx*=-1;
+    }else{
+      e.a+=0.025;
+      e.x=W/2+Math.cos(e.a)*e.r;
+      e.y=140+Math.sin(e.a)*e.r*0.4;
+    }
+  });
+
+  /* サビ beam */
+  if(isChorus()){
+    screenRot+=dt*0.8;
+    if(Math.random()<0.04){
+      const edge=[
+        [0,Math.random()*H,0],
+        [W,Math.random()*H,Math.PI],
+        [Math.random()*W,0,Math.PI/2],
+        [Math.random()*W,H,-Math.PI/2]
+      ][Math.random()*4|0];
+      spawnBeam(edge[0],edge[1],edge[2],true);
+    }
+  }else{
+    screenRot*=0.9;
+  }
+
+  /* 当たり判定 */
+  bullets=bullets.filter(b=>{
+    b.x+=b.vx; b.y+=b.vy;
+    const dx=b.x-player.x,dy=b.y-player.y;
+    if(!damaged && dx*dx+dy*dy<(b.r+player.r)**2){
+      player.hp--; damaged=true;
+      if(player.hp<=0) dead=true;
+    }
+    return b.x>-60&&b.x<W+60&&b.y>-60&&b.y<H+60;
+  });
+
+  beams=beams.filter(b=>{
+    b.time++;
+    if(b.time>b.warn){
+      const nx=Math.cos(b.angle),ny=Math.sin(b.angle);
+      const px=player.x-b.x,py=player.y-b.y;
+      const d=Math.abs(px*ny-py*nx);
+      if(d<20 && !damaged){
+        player.hp--; damaged=true;
+        if(player.hp<=0) dead=true;
+      }
+    }
+    return b.time<b.warn+b.life;
+  });
+
+  if(dead){
+    running=false;
+    bgm.pause(); bgm.currentTime=0;
+  }
+}
+
+/* ===== 描画 ===== */
+function draw(){
+  ctx.save();
+  ctx.translate(W/2,H/2);
+  ctx.rotate(screenRot);
+  ctx.translate(-W/2,-H/2);
+
+  ctx.clearRect(0,0,W,H);
+
+  bullets.forEach(b=>{
+    ctx.drawImage(b.img,b.x-8,b.y-8,16,16);
+  });
+
+  beams.forEach(b=>{
+    ctx.save();
+    ctx.translate(b.x,b.y);
+    ctx.rotate(b.angle);
+    ctx.globalAlpha=b.time<b.warn?0.3:1;
+    ctx.drawImage(beamImg,0,-20,b.long?1600:800,40);
+    ctx.restore();
+  });
+
+  ctx.drawImage(heart,player.x-12,player.y-12,24,24);
+  ctx.restore();
+
+  /* UI */
+  ctx.fillStyle="#300";
+  ctx.fillRect(20,20,200,12);
+  ctx.fillStyle="#f00";
+  ctx.fillRect(20,20,200*(player.hp/player.maxHp),12);
+  ctx.strokeStyle="#fff";
+  ctx.strokeRect(20,20,200,12);
+  ctx.fillStyle="#fff";
+  ctx.fillText(`HP ${player.hp}/99`,20,16);
+  ctx.fillText(`TIME ${surviveTime.toFixed(2)}s`,20,46);
+
+  if(dead){
+    ctx.textAlign="center";
+    ctx.font="42px sans-serif";
+    ctx.fillText("GAME OVER",W/2,H/2);
+  }
+}
+
+/* ===== ループ ===== */
+function loop(ts){
+  if(!running) return;
+  const dt=(ts-last)/1000; last=ts;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+
+function startGame(){
+  bullets=[]; beams=[]; emitters=[];
+  player.hp=99;
+  player.x=W/2; player.y=H*0.78;
+  dead=false; running=true;
+  screenRot=0;
+  startTime=performance.now();
+  lastBeatTime=0; nextFire=0; prevInterval=0.5;
+  bgm.currentTime=0; bgm.play();
+  last=performance.now();
+  requestAnimationFrame(loop);
+}
+
+start.onclick=()=>{
+  start.style.display="none";
+  startGame();
+};
+</script>
+</body>
+</html>
